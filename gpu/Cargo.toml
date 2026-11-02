@@ -1,0 +1,12 @@
+[package]
+name = "gb200-tma-causal-softmax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+causal-reference = { path = "../reference" }
+softmax-host = { path = "../host" }
+cuda-device = { git = "https://github.com/NVIDIA/cuda-rust.git", rev = "99e571f49baaefe4cd69157950c89ac9d4012728" }
+cuda-host = { git = "https://github.com/NVIDIA/cuda-rust.git", rev = "99e571f49baaefe4cd69157950c89ac9d4012728" }
+cuda-core = { git = "https://github.com/NVIDIA/cuda-rust.git", rev = "99e571f49baaefe4cd69157950c89ac9d4012728" }

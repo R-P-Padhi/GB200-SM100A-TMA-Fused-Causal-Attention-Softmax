@@ -1,0 +1,75 @@
+name: Validation
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - run: cargo test --locked -p causal-reference -p softmax-host
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked -p causal-reference -p softmax-host -- -D warnings
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+  device-static:
+    runs-on: ubuntu-24.04
+    container:
+      image: nvidia/cuda:13.3.1-devel-ubuntu24.04
+    env:
+      CUDA_TOOLKIT_PATH: /usr/local/cuda
+      CUDA_OXIDE_TARGET: sm_100a
+      RUSTC_BOOTSTRAP: '1'
+      LIBCLANG_PATH: /usr/lib/llvm-21/lib
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host tools and LLVM/Clang 21
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y curl ca-certificates gnupg git python3 build-essential pkg-config libssl-dev
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main' > /etc/apt/sources.list.d/llvm-21.list
+          apt-get update
+          apt-get install -y clang-21 libclang-21-dev llvm-21
+      - name: Install pinned Rust and cuda-oxide
+        shell: bash
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.99.1
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          . "$HOME/.cargo/env"
+          rustup component add rust-src rustc-dev llvm-tools rustfmt --toolchain 1.99.1
+          cargo +1.99.1 install --git https://github.com/NVIDIA/cuda-rust.git --rev 99e571f49baaefe4cd69157950c89ac9d4012728 cargo-oxide
+      - name: Build SM100a device module (no GPU required)
+        shell: bash
+        run: |
+          . "$HOME/.cargo/env"
+          cd gpu
+          cargo oxide build --arch sm_100a
+      - name: Lint GPU host crate
+        shell: bash
+        run: |
+          . "$HOME/.cargo/env"
+          cargo clippy --locked -p gb200-tma-causal-softmax --all-targets -- -D warnings
+      - name: Check PTX instructions and ptxas resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          PTX=gb200_tma_causal_softmax.ptx
+          test -s "$PTX"
+          python3 scripts/check_ptx.py "$PTX"
+          python3 scripts/check_resources.py "$PTX" --output sm100a.cubin --log sm100a.ptxas.log
+          python3 scripts/source_manifest.py --output source-sha256.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sm100a-static-output
+          path: |
+            **/*.ptx
+            sm100a.cubin
+            sm100a.ptxas.log
+            source-sha256.json
+          if-no-files-found: warn

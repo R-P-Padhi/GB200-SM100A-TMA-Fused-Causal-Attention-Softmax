@@ -1,0 +1,8 @@
+[
+  {"package":"cuda-nvcc-13-0","version":"13.0.88-1","url":"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-nvcc-13-0_13.0.88-1_amd64.deb","sha256":"394e9c9101dfe18c96e50452bcbb31841bbdca5c946fc7698105228ba9af1d08"},
+  {"package":"cuda-cudart-dev-13-0","version":"13.0.96-1","url":"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-cudart-dev-13-0_13.0.96-1_amd64.deb","sha256":"fb74ece01ea01e6c44335967fae3d47ff60524a5e061037b6be446dcc9ef1ee3"},
+  {"package":"cuda-driver-dev-13-0","version":"13.0.96-1","url":"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-driver-dev-13-0_13.0.96-1_amd64.deb","sha256":"a9726490d4797965b56a2e1dedb2c4cffd3f3463e11435fa4c500b3d147af08a"},
+  {"package":"cuda-crt-13-0","version":"13.0.88-1","url":"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-crt-13-0_13.0.88-1_amd64.deb","sha256":"88e7a068c08e5ff55dfa227ee271c33268e035c49e1df5fb588afbbce4bfbd94"},
+  {"package":"libnvvm-13-0","version":"13.0.88-1","url":"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/libnvvm-13-0_13.0.88-1_amd64.deb","sha256":"2539ff7ba030f4fbe1093644bff608d1b91256ca34076fc5be7aa579c3b657ff"},
+  {"package":"libcurand-dev-13-0","version":"10.4.0.35-1","url":"https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/libcurand-dev-13-0_10.4.0.35-1_amd64.deb","sha256":"3a3d4ce2dc681d2bf6ad00e95c051e748402f66030894aec8af1d24f336c5997"}
+]

@@ -1,0 +1,31 @@
+ptxas info    : 0 bytes gmem
+ptxas info    : Compiling entry function 'causal_softmax_warp' for 'sm_100a'
+ptxas info    : Function properties for causal_softmax_warp
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 20 registers, used 0 barriers
+ptxas info    : Compile time = 12.992 ms
+ptxas info    : Compiling entry function 'causal_softmax_tma' for 'sm_100a'
+ptxas info    : Function properties for causal_softmax_tma
+    32 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 31 registers, used 1 barriers, 32 bytes cumulative stack size, 4232 bytes smem
+ptxas info    : Compile time = 18.708 ms
+ptxas info    : Compiling entry function 'causal_softmax_tma_online' for 'sm_100a'
+ptxas info    : Function properties for causal_softmax_tma_online
+    40 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 29 registers, used 1 barriers, 40 bytes cumulative stack size, 6160 bytes smem
+ptxas info    : Compile time = 27.036 ms
+ptxas info    : Compiling entry function 'causal_softmax_baseline' for 'sm_100a'
+ptxas info    : Function properties for causal_softmax_baseline
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 26 registers, used 1 barriers, 36 bytes smem
+ptxas info    : Compile time = 20.329 ms
+ptxas info    : Compiling entry function 'causal_softmax_tma_pipelined' for 'sm_100a'
+ptxas info    : Function properties for causal_softmax_tma_pipelined
+    32 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 30 registers, used 1 barriers, 32 bytes cumulative stack size, 6288 bytes smem
+ptxas info    : Compile time = 23.855 ms
+ptxas info    : Compiling entry function 'probe' for 'sm_100a'
+ptxas info    : Function properties for probe
+    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+ptxas info    : Used 8 registers, used 0 barriers
+ptxas info    : Compile time = 1.982 ms

@@ -1,0 +1,15 @@
+/target/
+/.tools/
+/.oxide-artifacts/
+/build/
+*.ptx
+*.cubin
+*.fatbin
+*.log
+*.ll
+*.bc
+!tests/fixtures/*.ptx
+!evidence/*.ptx
+!evidence/*.cubin
+!evidence/*.log
+
