@@ -120,6 +120,17 @@ If the cuda-oxide CLI's `run` forwarding differs on the pinned revision, inspect
 - The 128-register and zero-spill **static gates passed**: the merged kernels use 20/26/29/30/31 registers as detailed in `docs/validation.md`. The register-only occupancy calculation is not a measured residency or throughput result. Shared-memory, block/SM, register allocation granularity and architecture limits can reduce realized occupancy.
 - Still no cross-block row reductions, arbitrary masks, score tensor generation, tensor-core MMA, GB300 compilation or real hardware timing. CUDA-event/NSight measurements and further tuning follow **hardware correctness and sanitizer tests** on an actual B200/GB200.
 
+
+## Benchmarking
+
+The hardware benchmark suite has **CUDA-event kernel latency**, p50/p95/p99/min/max/mean/stddev/CV, approximate logical bandwidth, elements/s, H2D/D2H and end-to-end transfer time, 1/2/4/8-stream concurrent workloads, batch queue depths (1/4/16/64), shape scaling, and extreme-score/scale sensitivity. The existing --bench wall-clock comparison is retained. The suite verifies output outside timed event windows by default.
+
+- On real B200/GB200 after building the device module: run `cargo run --release -p gb200-tma-causal-softmax -- --bench-suite --iterations 40 --warmup 10`.
+- Add `--stress` to include 8192x8192, or `--kernel online` to select a variant.
+- GitHub Actions also runs `softmax-host --example cpu_bench` on Linux and uploads CPU-only timing logs. **These are not GPU benchmarks.**
+
+Detailed methodology, workload matrix, data interpretation and unmeasured hardware metrics: [docs/benchmarking.md](docs/benchmarking.md). GB200 timing and profiler counters remain **not measured** until run on compatible hardware.
+
 ## Sources
 
 - [NVIDIA CUDA Rust official repo](https://github.com/NVIDIA/cuda-rust), [cuda-oxide installation](https://github.com/NVIDIA/cuda-rust/blob/cuda-oxide/v0.3.0/cuda-oxide/cuda-oxide-book/getting-started/installation.md), [upstream TMA example](https://github.com/NVIDIA/cuda-rust/blob/cuda-oxide/v0.3.0/cuda-oxide/crates/rustc-codegen-cuda/examples/tma_copy/src/main.rs), [warp reduction example](https://github.com/NVIDIA/cuda-rust/blob/cuda-oxide/v0.3.0/cuda-oxide/crates/rustc-codegen-cuda/examples/warp_reduce/src/main.rs).

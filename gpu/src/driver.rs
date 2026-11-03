@@ -1,6 +1,8 @@
 //! Host-only allocation, dispatch, correctness suites and timing.
 use super::*;
 use cuda_core::CudaStream;
+
+mod bench;
 use softmax_host::{Accuracy, Action, BenchStats, Config, Kernel, Pattern, make_input, verify};
 use std::{
     sync::Arc,
@@ -57,14 +59,24 @@ impl Session {
     }
 
     fn prepare(&self, raw: &[u16], rows: usize, cols: usize) -> Result<Buffers, Box<dyn Error>> {
+        self.prepare_on(&self.stream, raw, rows, cols)
+    }
+
+    fn prepare_on(
+        &self,
+        stream: &CudaStream,
+        raw: &[u16],
+        rows: usize,
+        cols: usize,
+    ) -> Result<Buffers, Box<dyn Error>> {
         if raw.len() != rows * cols {
             return Err("input length does not match shape".into());
         }
         let pitch = padded_pitch(cols);
         let pitched = pad(raw, rows, cols);
-        let input = DeviceBuffer::from_host(&self.stream, &pitched)?;
+        let input = DeviceBuffer::from_host(stream, &pitched)?;
         // A nonzero sentinel reveals missing stores in the logical output.
-        let output = DeviceBuffer::from_host(&self.stream, &vec![0xfb00u16; pitched.len()])?;
+        let output = DeviceBuffer::from_host(stream, &vec![0xfb00u16; pitched.len()])?;
         let input_ptr = input.cu_deviceptr() as *mut c_void;
         let output_ptr = output.cu_deviceptr() as *mut c_void;
         let source_map = tensor_map(input_ptr, pitch, rows, 256, 4)?;
@@ -84,6 +96,18 @@ impl Session {
 
     fn launch(
         &self,
+        kind: Kernel,
+        b: &mut Buffers,
+        rows: usize,
+        cols: usize,
+        scale: f32,
+    ) -> Result<(), Box<dyn Error>> {
+        self.launch_on(&self.stream, kind, b, rows, cols, scale)
+    }
+
+    fn launch_on(
+        &self,
+        stream: &CudaStream,
         kind: Kernel,
         b: &mut Buffers,
         rows: usize,
@@ -111,7 +135,7 @@ impl Session {
                 // allocation and pitch were checked when creating Buffers.
                 unsafe {
                     self.module.causal_softmax_baseline(
-                        &self.stream,
+                        stream,
                         cfg,
                         &b.input,
                         &mut b.output,
@@ -127,7 +151,7 @@ impl Session {
                 }
                 unsafe {
                     self.module.causal_softmax_warp(
-                        &self.stream,
+                        stream,
                         cfg,
                         &b.input,
                         &mut b.output,
@@ -143,7 +167,7 @@ impl Session {
                 // output rows; sync before buffers are moved/freed.
                 unsafe {
                     self.module.causal_softmax_tma(
-                        &self.stream,
+                        stream,
                         cfg,
                         b.source_map,
                         b.target_map,
@@ -156,7 +180,7 @@ impl Session {
             Kernel::Pipeline => {
                 unsafe {
                     self.module.causal_softmax_tma_pipelined(
-                        &self.stream,
+                        stream,
                         cfg,
                         b.source_map,
                         b.target_map,
@@ -171,7 +195,7 @@ impl Session {
                 // the barrier protocol is handled uniformly by every CTA.
                 unsafe {
                     self.module.causal_softmax_tma_online(
-                        &self.stream,
+                        stream,
                         cfg,
                         b.online_source_map,
                         b.online_target_map,
@@ -372,6 +396,7 @@ pub(super) fn main_entry() -> Result<(), Box<dyn Error>> {
         Action::GpuTests => gpu_tests(&session, false),
         Action::GpuStress => gpu_tests(&session, true),
         Action::Bench => benchmark(&session, &c),
+        Action::BenchSuite => bench::suite(&session, &c),
         Action::Run => {
             let input = make_input(c.rows, c.cols, Pattern::Random, 0x13579bdf);
             let kind = c.resolved_kernel();

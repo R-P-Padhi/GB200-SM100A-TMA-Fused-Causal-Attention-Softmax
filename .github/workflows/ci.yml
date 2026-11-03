@@ -14,6 +14,14 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked -p causal-reference -p softmax-host -- -D warnings
       - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Measure CPU reference (informational; not a GPU benchmark)
+        run: cargo run --locked --release -p softmax-host --example cpu_bench -- --iterations 5 | tee cpu-bench.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpu-reference-benchmark
+          path: cpu-bench.log
+          if-no-files-found: warn
 
   device-static:
     runs-on: ubuntu-24.04

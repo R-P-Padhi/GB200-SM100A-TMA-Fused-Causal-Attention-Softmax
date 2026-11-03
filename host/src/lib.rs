@@ -71,6 +71,7 @@ pub enum Action {
     GpuTests,
     GpuStress,
     Bench,
+    BenchSuite,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +114,7 @@ impl Config {
                 "--gpu-tests" => c.action = Action::GpuTests,
                 "--gpu-stress" => c.action = Action::GpuStress,
                 "--bench" => c.action = Action::Bench,
+                "--bench-suite" => c.action = Action::BenchSuite,
                 "--no-verify" => c.verify = false,
                 "--stress" => (c.rows, c.cols) = (8192, 8192),
                 "--rows" | "--cols" | "--scale" | "--kernel" | "--iterations" | "--warmup" => {
@@ -174,7 +176,7 @@ impl Config {
         }
     }
     pub const fn help() -> &'static str {
-        "--probe | --gpu-tests | --gpu-stress | --bench [--rows M] [--cols N] [--scale F] \
+        "--probe | --gpu-tests | --gpu-stress | --bench | --bench-suite [--rows M] [--cols N] [--scale F] \
          [--kernel auto|baseline|warp|tma|pipeline|online] [--iterations N] [--warmup N] \
          [--stress] [--no-verify]"
     }
@@ -327,30 +329,52 @@ pub fn verify(
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BenchStats {
+    pub samples: usize,
     pub min_ms: f64,
     pub median_ms: f64,
     pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub max_ms: f64,
     pub mean_ms: f64,
+    pub stddev_ms: f64,
+    pub cv_pct: f64,
 }
 impl BenchStats {
-    pub fn from_samples(samples: &[Duration]) -> Result<Self, String> {
-        if samples.is_empty() {
-            return Err("no benchmark samples".into());
+    /// Nearest-rank tails; standard deviation is population SD, not standard error.
+    pub fn from_millis(values: &[f64]) -> Result<Self, String> {
+        if values.is_empty() || values.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err("benchmark needs finite nonnegative timing samples".into());
         }
-        let mut ms: Vec<_> = samples.iter().map(|x| x.as_secs_f64() * 1000.0).collect();
+        let mut ms = values.to_vec();
         ms.sort_by(f64::total_cmp);
         let n = ms.len();
+        let mean = ms.iter().sum::<f64>() / n as f64;
+        let variance = ms.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
         let median = if n % 2 == 0 {
             (ms[n / 2 - 1] + ms[n / 2]) / 2.0
         } else {
             ms[n / 2]
         };
+        let stddev = variance.sqrt();
         Ok(Self {
+            samples: n,
             min_ms: ms[0],
             median_ms: median,
-            p95_ms: ms[(n * 95).div_ceil(100).saturating_sub(1)],
-            mean_ms: ms.iter().sum::<f64>() / n as f64,
+            p95_ms: ms[(n * 95).div_ceil(100) - 1],
+            p99_ms: ms[(n * 99).div_ceil(100) - 1],
+            max_ms: ms[n - 1],
+            mean_ms: mean,
+            stddev_ms: stddev,
+            cv_pct: if mean > 0.0 { 100.0 * stddev / mean } else { 0.0 },
         })
+    }
+    pub fn from_samples(samples: &[Duration]) -> Result<Self, String> {
+        Self::from_millis(
+            &samples
+                .iter()
+                .map(|x| x.as_secs_f64() * 1000.0)
+                .collect::<Vec<_>>(),
+        )
     }
     pub fn report(&self, name: &str, rows: usize, cols: usize, logical_bytes: f64) -> String {
         let gbps = if self.median_ms > 0.0 {
@@ -358,9 +382,15 @@ impl BenchStats {
         } else {
             0.0
         };
+        let melems = if self.median_ms > 0.0 {
+            rows as f64 * cols as f64 / (self.median_ms / 1000.0) / 1e6
+        } else {
+            0.0
+        };
         format!(
-            "kernel={name} rows={rows} cols={cols} min_ms={:.4} median_ms={:.4} p95_ms={:.4} mean_ms={:.4} approx_logical_GBps={gbps:.2}",
-            self.min_ms, self.median_ms, self.p95_ms, self.mean_ms
+            "kernel={name} rows={rows} cols={cols} n={} min_ms={:.5} median_ms={:.5} p95_ms={:.5} p99_ms={:.5} max_ms={:.5} mean_ms={:.5} stddev_ms={:.5} cv_pct={:.2} approx_logical_GBps={gbps:.2} Melem_per_s={melems:.2}",
+            self.samples, self.min_ms, self.median_ms, self.p95_ms, self.p99_ms,
+            self.max_ms, self.mean_ms, self.stddev_ms, self.cv_pct
         )
     }
 }
@@ -515,4 +545,27 @@ mod tests {
     fn verify_rejects_length_overflow() {
         assert_eq!(verify(&[], &[], usize::MAX, 2), Err(VerifyError::Length));
     }
+    #[test]
+    fn bench_percentiles_and_spread() {
+        let b = BenchStats::from_millis(&[1.0, 3.0, 5.0, 7.0, 9.0]).unwrap();
+        assert_eq!((b.samples, b.median_ms, b.p95_ms, b.p99_ms), (5, 5.0, 9.0, 9.0));
+        assert_eq!(b.mean_ms, 5.0);
+        assert!((b.stddev_ms - 8.0_f64.sqrt()).abs() < 1e-12);
+        assert!(b.cv_pct > 0.0);
+    }
+    #[test]
+    fn bench_rejects_invalid_timings() {
+        assert!(BenchStats::from_millis(&[]).is_err());
+        assert!(BenchStats::from_millis(&[f64::NAN]).is_err());
+        assert!(BenchStats::from_millis(&[-1.0]).is_err());
+        assert_eq!(BenchStats::from_millis(&[0.0]).unwrap().cv_pct, 0.0);
+    }
+    #[test]
+    fn suite_cli_and_bounds() {
+        let c = Config::parse(["--bench-suite", "--iterations", "8", "--warmup", "2"]).unwrap();
+        assert_eq!(c.action, Action::BenchSuite);
+        assert_eq!(c.iterations, 8);
+        assert!(Config::parse(["--bench-suite", "--iterations", "0"]).is_err());
+    }
+
 }
