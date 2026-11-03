@@ -43,7 +43,7 @@ For a tile, let `t` be the maximum eligible scaled score, with previous row stat
 m' = \max(m,t),\qquad l' = l\,e^{m-m'} + \sum_{j\text{ eligible in tile}} e^{x_j-m'}.
 \]
 
-Start with `m = -∞`, `l = 0`. Entirely masked tiles and invalid rows **skip** the update to avoid `-∞ - -∞`. Every valid lane of a warp receives the same maximum and sum through XOR-butterfly shuffles. Pass two recomputes probabilities from the stored `(m,l)` state, writes FP16 values to shared memory, fences for the TMA proxy, and waits for S2G completion. The CPU execution model in `reference/src/online.rs` independently checks the recurrence with 32-lane reductions and ragged tiles.
+Start with `m = -∞`, `l = 0`. Entirely masked tiles and invalid rows **skip the numerical update** to avoid `-∞ - -∞`; the present kernel still **issues the TMA input copy** for every tile on both passes. Causal masking is applied after loading, so it does not eliminate source traffic. Avoiding fully masked TMA copies would require a redesigned producer/barrier schedule and GPU validation. Every valid lane of a warp receives the same maximum and sum through XOR-butterfly shuffles. Pass two recomputes probabilities from the stored `(m,l)` state, writes FP16 values to shared memory, fences for the TMA proxy, and waits for S2G completion. The CPU execution model in `reference/src/online.rs` independently checks the recurrence with 32-lane reductions and ragged tiles.
 
 ## Double-buffer schedule
 
@@ -65,6 +65,8 @@ sequenceDiagram
 ```
 
 A full CTA synchronization happens between tile uses and before reusing shared data. S2G stores use `cp_async_bulk_commit_group` and `cp_async_bulk_wait_group(0)` so output data is not overwritten during copies. Two input buffers alone do **not** reduce the number of passes; online statistics are the reason the new kernel has only two source reads.
+
+**Dense logical transfer model for 4,096 × 4,096:** the online kernel launches 4,096/8 = 512 row-group CTAs. Each visits 4,096/128 = 32 column tiles in each of two passes, including masked tiles. At 2,048 B/input tile, reads = 512 × 32 × 2 × 2,048 = **64 MiB**; one dense FP16 output = **32 MiB**, giving **96 MiB** total. Three-pass TMA reads an entire dense input three times and writes once (**128 MiB**); 25% is a **modeled transfer reduction**, not a measured bandwidth or speedup. A hypothetical group-level skip of all-masked online tiles could reduce requested reads to **33 MiB** (8,448 × 2,048 B per pass × 2) and total modeled traffic to **65 MiB**, but that optimization is **not implemented**.
 
 ## Resource model and constraints
 
