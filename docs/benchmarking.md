@@ -24,7 +24,7 @@ Every sample group reports: sample count, minimum, mean, median, p95, p99, maxim
 - Correctness against the CPU reference unless --no-verify is requested, plus the independent GPU stress suite.
 - Static register counts, spill loads/stores, shared-memory footprint and register occupancy bound from ptxas (not GPU runtime numbers).
 
-The logical-byte estimate is derived from per-kernel FP16 read/write/pass counts in softmax-host; it is **not** measured DRAM traffic or a literal physical read/write instruction count. TMA padding, cache effects and memory transactions change actual traffic. NVIDIA Nsight Compute hardware counters are required for per-direction DRAM byte counts, achieved bandwidth, cache hit rates, SM occupancy, stalls and memory-pipeline overlap.
+The logical-byte estimate is derived from per-kernel FP16 read/write/pass counts in softmax-host; it is **not** measured DRAM traffic or a literal physical read/write instruction count. In the present online TMA code, all column tiles are copied twice even when the causal mask excludes their values from the softmax; the 6 B/element figure models these dense tile transfers and the dense output. TMA padding, cache effects and memory transactions change actual traffic. NVIDIA Nsight Compute hardware counters are required for per-direction DRAM byte counts, achieved bandwidth, cache hit rates, SM occupancy, stalls and memory-pipeline overlap.
 
 ## Commands on B200 / GB200
 
