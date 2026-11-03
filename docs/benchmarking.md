@@ -1,6 +1,6 @@
 # Performance benchmark protocol
 
-This project isolates three timing domains: **CUDA events** for device execution, **host wall-clock** for copies/enqueue/synchronization, and **CPU wall-clock** for the independent reference. Never mix those numbers in a speedup claim. GPU measurements require a real B200/GB200, a working NVIDIA driver and the compiled SM100a binary. GitHub-hosted CPU-only CI cannot produce GB200 latency, bandwidth, concurrent execution, or benchmark scores.
+Keep three timing sources separate: **CUDA events** for device work, **host wall-clock** for copies/launch/sync, and **CPU wall-clock** for the reference. Speedups must use comparable clocks and workloads. GPU figures require a B200/GB200 and a compatible driver; CPU-only GitHub runners collect reference timing and static assembly data.
 
 ## Workloads and measured dimensions
 
@@ -28,24 +28,26 @@ The logical-byte estimate is derived from per-kernel FP16 read/write/pass counts
 
 ## Commands on B200 / GB200
 
-Build exactly as described in the root README, including the pinned cuda-oxide backend. A compatible CUDA driver and accessible GPU are required for all commands below:
+With the pinned toolchain from the root README and a compatible GPU, run from `gpu/`:
 
-    cargo run --release -p gb200-tma-causal-softmax -- --gpu-tests
-    cargo run --release -p gb200-tma-causal-softmax -- --gpu-stress
-    cargo run --release -p gb200-tma-causal-softmax -- --bench-suite --iterations 40 --warmup 10
-    cargo run --release -p gb200-tma-causal-softmax -- --bench-suite --stress --iterations 20 --warmup 5
-    cargo run --release -p gb200-tma-causal-softmax -- --bench-suite --kernel online --rows 4096 --cols 4096 --iterations 100
-    cargo run --release -p gb200-tma-causal-softmax -- --bench --kernel auto --iterations 100
+```bash
+cargo oxide run --arch sm_100a -- --gpu-tests
+cargo oxide run --arch sm_100a -- --gpu-stress
+cargo oxide run --arch sm_100a -- --bench-suite --iterations 40 --warmup 10
+cargo oxide run --arch sm_100a -- --bench-suite --stress --iterations 20 --warmup 5
+cargo oxide run --arch sm_100a -- --bench-suite --kernel online --rows 4096 --cols 4096 --iterations 100
+cargo oxide run --arch sm_100a -- --bench --kernel auto --iterations 100
+```
 
-The device module must be built and loadable by the host before running; consult the root README for the exact working directory and PTX artifact. The suite prints one machine-parsable key=value line per result, prefixed BENCH. Pin GPU clocks/power mode only when allowed by machine policy, run after warmup, and record driver/toolkit versions, exact Git commit, GPU name, thermals, clock state and other active workloads. For representative sustained-load testing, repeat the entire sweep three times and compare distributions.
+Each result is a machine-readable `BENCH key=value` line. Record the Git commit, GPU model, CUDA driver/toolkit, clock and thermal state, power limit and competing workloads. Warm up first; repeat the full sweep three times to check variance.
 
-For CPU-only machines or standard GitHub Actions (no NVIDIA GPU):
+From the repository root on CPU-only Linux or GitHub Actions:
 
     cargo test --locked -p causal-reference -p softmax-host
     cargo run --locked --release -p softmax-host --example cpu_bench -- --iterations 5
     python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
-The CPU model benchmark writes cpu-bench.log and a typed cpu-bench.json summary via scripts/summarize_bench.py in CI. It measures reference CPU work and is **not** a surrogate for GPU execution. CI checks correctness and compilation; it has no fixed speed threshold because shared-runner CPU timing is noisy.
+CI saves `cpu-bench.log` and a parsed `cpu-bench.json` using `scripts/summarize_bench.py`. These cover CPU reference work only. Shared-runner timing is variable, so CI does not enforce a performance threshold.
 
 ## Interpreting results
 
@@ -55,7 +57,7 @@ The CPU model benchmark writes cpu-bench.log and a typed cpu-bench.json summary 
 - Host copies use safe synchronous cuda-core APIs with pageable host vectors. These are **not** pinned-memory overlap benchmarks, nor do they isolate PCIe/NVLink from the driver overhead.
 - Accuracy checks occur before or after timed loops, not inside the CUDA-event window. Profiling with an external tool can perturb time and should be kept separate.
 - A lower register count does not itself prove better speed; compare event latency, achieved occupancy and actual hardware counters.
-- Report missing devices as NOT MEASURED, never as zero latency or zero throughput.
+- Use `NOT MEASURED` for missing GPU results, not numeric zero.
 
 ## Results status
 

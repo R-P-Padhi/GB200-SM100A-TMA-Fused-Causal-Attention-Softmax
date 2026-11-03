@@ -1,6 +1,6 @@
 # Architecture and execution
 
-This project accepts **precomputed** FP16 attention scores, not `Q`, `K` or `V`. Every output row is a causal, numerically stable softmax computed with FP32 intermediates and rounded to FP16. The merged device source has assembled for Blackwell `sm_100a` but still needs actual GPU execution and runtime validation.
+This project accepts **precomputed** FP16 attention scores, not `Q`, `K` or `V`. Every output row is a causal, numerically stable softmax computed with FP32 intermediates and rounded to FP16. PTX generation and assembly have passed for `sm_100a`; runtime behavior still needs a B200/GB200 test.
 
 ## Kernel choices
 
@@ -43,7 +43,7 @@ For a tile, let `t` be the maximum eligible scaled score, with previous row stat
 m' = \max(m,t),\qquad l' = l\,e^{m-m'} + \sum_{j\text{ eligible in tile}} e^{x_j-m'}.
 \]
 
-Start with `m = -∞`, `l = 0`. Entirely masked tiles and invalid rows **skip the numerical update** to avoid `-∞ - -∞`; the present kernel still **issues the TMA input copy** for every tile on both passes. Causal masking is applied after loading, so it does not eliminate source traffic. Avoiding fully masked TMA copies would require a redesigned producer/barrier schedule and GPU validation. Every valid lane of a warp receives the same maximum and sum through XOR-butterfly shuffles. Pass two recomputes probabilities from the stored `(m,l)` state, writes FP16 values to shared memory, fences for the TMA proxy, and waits for S2G completion. The CPU execution model in `reference/src/online.rs` independently checks the recurrence with 32-lane reductions and ragged tiles.
+Start with `m = -∞`, `l = 0`. Entirely masked tiles and invalid rows **skip the numerical update** to avoid `-∞ - -∞`; the online kernel still **issues the TMA input copy** for every tile on both passes. Causal masking is applied after loading, so it does not eliminate source traffic. Avoiding fully masked TMA copies would require a redesigned producer/barrier schedule and GPU validation. Every valid lane of a warp receives the same maximum and sum through XOR-butterfly shuffles. Pass two recomputes probabilities from the stored `(m,l)` state, writes FP16 values to shared memory, fences for the TMA proxy, and waits for S2G completion. The CPU execution model in `reference/src/online.rs` independently checks the recurrence with 32-lane reductions and ragged tiles.
 
 ## Double-buffer schedule
 
@@ -64,7 +64,7 @@ sequenceDiagram
     CTA->>B1: Process tile 1
 ```
 
-A full CTA synchronization happens between tile uses and before reusing shared data. S2G stores use `cp_async_bulk_commit_group` and `cp_async_bulk_wait_group(0)` so output data is not overwritten during copies. Two input buffers alone do **not** reduce the number of passes; online statistics are the reason the new kernel has only two source reads.
+A full CTA synchronization happens between tile uses and before reusing shared data. S2G stores use `cp_async_bulk_commit_group` and `cp_async_bulk_wait_group(0)` so output data is not overwritten during copies. Two input buffers alone do **not** reduce the number of passes; online statistics are the reason the online kernel has only two source reads.
 
 **Dense logical transfer model for 4,096 × 4,096:** the online kernel launches 4,096/8 = 512 row-group CTAs. Each visits 4,096/128 = 32 column tiles in each of two passes, including masked tiles. At 2,048 B/input tile, reads = 512 × 32 × 2 × 2,048 = **64 MiB**; one dense FP16 output = **32 MiB**, giving **96 MiB** total. Three-pass TMA reads an entire dense input three times and writes once (**128 MiB**); 25% is a **modeled transfer reduction**, not a measured bandwidth or speedup. A hypothetical group-level skip of all-masked online tiles could reduce requested reads to **33 MiB** (8,448 × 2,048 B per pass × 2) and total modeled traffic to **65 MiB**, but that optimization is **not implemented**.
 
@@ -79,6 +79,6 @@ A full CTA synchronization happens between tile uses and before reusing shared d
 | Threads/CTA | 256 | 256 | 256 |
 | Global source reads per element | Three | Three | **Two** |
 
-**Actual assembled resource totals** for the merged source: baseline 26 registers, warp 20, single-buffer TMA 31, pipeline TMA 30, online TMA 29, probe 8; **zero register spill loads or stores** in all entries. The TMA variants use 32/32/40 bytes of compiler stack scratch respectively, so some PTX local loads/stores remain despite zero spills. A zero-spill `ptxas` report does not mean zero local-memory instructions. The register-only occupancy estimator returns 100% at these allocations; actual GB200 residency also depends on SM limits, allocation granularity, shared memory, CTA limits and compiler output. No occupancy measurement is claimed.
+**Saved `ptxas` resource totals:** baseline 26 registers, warp 20, single-buffer TMA 31, pipeline TMA 30, online TMA 29, probe 8; **zero register spill loads or stores** in all entries. The TMA variants use 32/32/40 bytes of compiler stack scratch respectively, so some PTX local loads/stores remain despite zero spills. A zero-spill `ptxas` report does not mean zero local-memory instructions. The register-only occupancy estimator returns 100% at these allocations; actual GB200 residency also depends on SM limits, allocation granularity, shared memory, CTA limits and compiler output. No occupancy measurement is claimed.
 
-The device code uses compiler-provided low-level `unsafe` TMA/mbarrier operations and disjoint-address stores. Race freedom is a design argument, not a substitute for Compute Sanitizer or real GPU tests. **Successful assembly is not proof of correct device behavior** or production readiness.
+The device code uses compiler-provided low-level `unsafe` TMA/mbarrier operations and disjoint-address stores. Race freedom is a design argument, not a substitute for Compute Sanitizer or real GPU tests. Static assembly does not establish device correctness.

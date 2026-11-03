@@ -22,4 +22,4 @@ Host input/output are stored as **`u16` half-float bit patterns** and converted 
 
 NVIDIA lists GB200/B200 as CC **10.0**, GB300/B300 as **10.3**, H100/H200 as **9.0**, and RTX 5090 as **12.0**. Architecture-specific `sm_100a` PTX/cubins are neither backward- nor generally forward-compatible; this project deliberately rejects other devices. See [NVIDIA GPU capabilities](https://developer.nvidia.com/cuda/gpus) and the [Blackwell compatibility guide](https://docs.nvidia.com/cuda/blackwell-compatibility-guide/).
 
-The older uploaded standalone project used commit `b631530700a8a4a5f165456f2d71fe9195b323b5` (2026-11-02). Its archived measurements belong to **that older source only**. This merged code was **independently rebuilt and assembled**, with fresh PTX and per-kernel resource evidence in [`evidence/`](../evidence/).
+The checked-in assembly logs and source hashes are under [`evidence/`](../evidence/). CI builds and checks the current repository revision separately.

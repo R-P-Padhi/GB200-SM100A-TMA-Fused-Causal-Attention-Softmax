@@ -2,7 +2,7 @@
 
 Rust · NVIDIA cuda-oxide · FP16 I/O · FP32 math · Blackwell `sm_100a`
 
-**State (2026-11-02):** merged source **compiled to `sm_100a` PTX and assembled successfully** with Rust 1.99.1, official cuda-oxide v0.3.0 and CUDA 13.0. All six entries (probe plus five kernels) passed per-entry PTX checks; `ptxas` reports **20–31 registers for the compute kernels, zero register spills**. **42 Rust tests and 21 checker tests passed locally.** Saved PTX, cubin and raw assembly report are in [`evidence/`](evidence/). No GB200 GPU was available: device correctness, race checks and timing remain **unverified**.
+**Build status:** All five kernels and the probe compile to `sm_100a` PTX and assemble with `ptxas` (Rust 1.99.1, cuda-oxide v0.3.0, CUDA 13.0). Compute kernels use **20–31 registers/thread with zero reported spills**. [Linux CI (2026-11-03)](https://github.com/R-P-Padhi/GB200-SM100A-TMA-Fused-Causal-Attention-Softmax/actions/runs/41595787096) passed **45 Rust tests, 28 Python tests**, and a fresh SM100a static build. The local PTX, cubin and assembly log are in [`evidence/`](evidence/). Device correctness and GB200 performance have not been measured.
 
 ## Scope
 
@@ -10,7 +10,7 @@ Rust · NVIDIA cuda-oxide · FP16 I/O · FP32 math · Blackwell `sm_100a`
 - Output: `P[r,c] = exp(scale*S[r,c] - max_r) / sum_{j<=r} exp(scale*S[r,j] - max_r)` for `c<=r`, otherwise `0`, rounded to FP16. Causal indices are absolute, starting at zero; no KV-cache offset or arbitrary mask.
 - Precision: FP16 storage; FP32 scaling, maximum, approximate exponential (`ex2.approx.f32`), sum, normalization. Finite input and scale in `[0, 1e30]` required. Zero scale gives a uniform causal distribution.
 - Default `4096×4096` (32 MiB per dense FP16 matrix); stress `8192×8192` (128 MiB per matrix). Small odd and rectangular shapes supported through 16-byte-aligned pitch and TMA out-of-bounds fill.
-- TMA work assignment: every CTA has 256 threads (eight warps). The original TMA variants handle `4×256` tiles with eight-warp reductions, in three streaming passes (max → sum → output). The added **online TMA** variant handles `8×128` tiles with one warp per row, four values/lane, and **two passes** (running max+sum → output). Both designs fuse computation into one GPU launch.
+- TMA work assignment: every CTA has 256 threads (eight warps). The three-pass TMA kernels handle `4×256` tiles with eight-warp reductions, in three streaming passes (max → sum → output). The **online TMA** kernel handles `8×128` tiles with one warp per row, four values/lane, and **two passes** (running max+sum → output). Both designs fuse computation into one GPU launch.
 - Pipelining: two aligned FP16 shared input tiles and two mbarriers alternate G2S transfers. The online variant uses one producer arrival per barrier phase and parity waits; the three-pass variant uses 256 arrivals and token waits. **Every TMA load registers expected bytes before issuing the asynchronous copy.** CTA synchronization prevents buffer reuse before consumption; S2G stores wait for bulk-group completion. Overlap is a hypothesis, not a benchmark result.
 - The runtime builds **separate tensor maps** for `4×256` and `8×128`; reusing the wrong descriptor would copy the wrong geometry. TMA source/storage and descriptor operations are inherently unsafe low-level intrinsics; host interfaces and CPU math are ordinary safe Rust. Safety comments identify manually indexed device stores.
 
@@ -30,18 +30,23 @@ Default dispatch: warp for `N <= 32`, otherwise two-pass online TMA. `--kernel b
 
 | Path | Content |
 |---|---|
-| `gpu/src/main.rs` | 5 GPU kernels, probe, checked tensor-map encoder |
-| `gpu/src/driver.rs` | typed host dispatch, buffer ownership, GPU tests, wall-time benchmarks |
-| `host/src/lib.rs` | zero-CUDA CLI, patterns, numerical verifier, benchmark stats and tests |
+| `gpu/src/main.rs` | five GPU kernels, probe, tensor-map encoder |
+| `gpu/src/driver.rs` | typed host dispatch, buffer ownership, GPU tests and dispatch |
+| `gpu/src/driver/bench.rs` | CUDA-event benchmarks, transfers, queue depths and stream concurrency |
+| `host/src/lib.rs` | GPU-independent CLI, patterns, numerical verifier and benchmark stats |
+| `host/examples/cpu_bench.rs` | CPU-only reference timing harness |
 | `reference/src/lib.rs` | independent CPU spec, IEEE half conversion, padding, FP64 oracle and tests |
 | `reference/src/online.rs` | warp butterfly + two-pass tiled arithmetic model and edge tests |
 | `scripts/check_ptx.py` | inspect each entry separately; reject comments and missing TMA/warp instructions |
 | `scripts/check_resources.py` | per-kernel `ptxas` gate: <=128 registers, zero spills, >=25% register-limited occupancy; report stack separately |
 | `scripts/test_validation.py` | 21 failure-oriented tests, including TMA copy-before-barrier-registration regression |
+| `scripts/test_benchmark_reports.py` | seven benchmark-log parser tests |
+| `scripts/summarize_bench.py` | convert benchmark logs to typed JSON |
 | `scripts/source_manifest.py` | SHA-256 manifest of source and toolchain inputs for CI evidence |
 | `scripts/bootstrap.py`, `scripts/cuda-packages.json` | optional local driverless CUDA 13 setup with official package SHA-256 pins |
 | `.github/workflows/ci.yml` | locked CPU tests, formatting, GPU-free SM100a compile/assemble |
 | `docs/architecture.md` | execution layout, synchronization, constraints |
+| `docs/benchmarking.md` | benchmark workload matrix, clocks and result interpretation |
 | `docs/evaluation.md` | report material, slide outline, viva answers |
 | `docs/validation.md`, `evidence/` | reproducible compile/test results, archived PTX/cubin/ptxas logs |
 | `docs/sources.md` | pinned cuda-oxide API/source map and architecture compatibility |
@@ -97,7 +102,7 @@ cargo oxide run --arch sm_100a -- --bench --kernel pipeline --stress
 cargo oxide run --arch sm_100a -- --help
 ```
 
-If the cuda-oxide CLI's `run` forwarding differs on the pinned revision, inspect `cargo oxide run --help`. The CI build step is authoritative for compilation; it never silently runs on the CI host GPU.
+`cargo oxide run` needs a compatible B200/GB200. The CI job uses `cargo oxide build` and does not launch GPU code.
 
 ## Static pass/fail gates
 
@@ -117,19 +122,18 @@ If the cuda-oxide CLI's `run` forwarding differs on the pinned revision, inspect
 
 - `ex2.approx.f32` is an approximate FP32 instruction; GPU comparisons allow 0.003 absolute + 0.003 relative difference from the CPU reference. Run hardware/sanitizer tests before claiming exact accuracy or safety.
 - TMA load/store descriptors assume 16-byte-aligned pointers and row pitches. Host padding satisfies pitch; CUDA device allocations supply aligned base addresses. Workloads with nonfinite values are rejected by the CPU spec, and not defined for the kernel.
-- The 128-register and zero-spill **static gates passed**: the merged kernels use 20/26/29/30/31 registers as detailed in `docs/validation.md`. The register-only occupancy calculation is not a measured residency or throughput result. Shared-memory, block/SM, register allocation granularity and architecture limits can reduce realized occupancy.
-- Still no cross-block row reductions, arbitrary masks, score tensor generation, tensor-core MMA, GB300 compilation or real hardware timing. CUDA-event/NSight measurements and further tuning follow **hardware correctness and sanitizer tests** on an actual B200/GB200.
-
+- The 128-register and zero-spill **static gates passed**: the five compute kernels use 20/26/29/30/31 registers as detailed in `docs/validation.md`. The register-only occupancy calculation is not a measured residency or throughput result. Shared-memory, block/SM, register allocation granularity and architecture limits can reduce realized occupancy.
+- Still no cross-block row reductions, arbitrary masks, score tensor generation, tensor-core MMA, GB300 compilation or real hardware timing. CUDA-event/Nsight measurements and further tuning follow hardware correctness and sanitizer tests on a B200/GB200.
 
 ## Benchmarking
 
-The hardware benchmark suite has **CUDA-event kernel latency**, p50/p95/p99/min/max/mean/stddev/CV, approximate logical bandwidth, elements/s, H2D/D2H and end-to-end transfer time, device-to-device copy bandwidth, 1/2/4/8-stream concurrent workloads, batch queue depths (1/4/16/64), shape scaling, and extreme-score/scale sensitivity. The existing --bench wall-clock comparison is retained. The suite verifies output outside timed event windows by default.
+`--bench-suite` measures CUDA-event kernel latency (min/median/p95/p99/mean/stddev/CV), logical bandwidth, elements/s, transfer times, device-to-device copies, queue depth (1/4/16/64) and independent-stream throughput (1/2/4/8 streams). It also sweeps shapes and score distributions. Correctness checks run outside timed windows; `--bench` retains the synchronized host-wall comparison.
 
-- On real B200/GB200 after building the device module: run `cargo run --release -p gb200-tma-causal-softmax -- --bench-suite --iterations 40 --warmup 10`.
-- Add `--stress` to include 8192x8192, or `--kernel online` to select a variant.
-- GitHub Actions also runs `softmax-host --example cpu_bench` on Linux and uploads CPU-only timing logs. **These are not GPU benchmarks.**
+- On a B200/GB200, from `gpu/`: `cargo oxide run --arch sm_100a -- --bench-suite --iterations 40 --warmup 10`.
+- Add `--stress` for 8192×8192 or `--kernel online` to select one variant.
+- CPU-only CI runs `softmax-host --example cpu_bench` and uploads timing logs; these measure the CPU reference, not the GPU.
 
-Detailed methodology, workload matrix, data interpretation and unmeasured hardware metrics: [docs/benchmarking.md](docs/benchmarking.md). GB200 timing and profiler counters remain **not measured** until run on compatible hardware.
+Workloads, timing definitions and remaining measurements: [docs/benchmarking.md](docs/benchmarking.md).
 
 ## Sources
 

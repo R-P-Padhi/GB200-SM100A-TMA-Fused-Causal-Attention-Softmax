@@ -1,26 +1,24 @@
-# Evaluation brief
+# Technical evaluation
 
-## Abstract
-
-An experimental **GB200/B200 `sm_100a`** causal attention-score softmax in Rust using NVIDIA cuda-oxide v0.3.0. Five GPU variants cover global-memory baseline, narrow warp specialization, single-buffer TMA, three-pass double-buffered TMA, and **two-pass online double-buffered TMA**. All take FP16 attention scores and emit FP16 causal probabilities using stable FP32 math. This is *not* FlashAttention; it does not multiply `Q×Kᵀ` or apply `P×V`.
+This project applies stable causal softmax to precomputed FP16 attention scores on **GB200/B200 (`sm_100a`)** using Rust and NVIDIA cuda-oxide v0.3.0. The five kernels cover a global-memory baseline, narrow-row warp specialization, single-buffer 2D TMA, double-buffered three-pass TMA and double-buffered two-pass online TMA. Accumulation is FP32; output is FP16. It does not compute `Q×Kᵀ` or `P×V` and is not FlashAttention.
 
 ## Evidence matrix
 
-| Claim | How to verify | Status as of 2026-11-02 |
+| Claim | How to verify | Linux CI, 2026-11-03 |
 |---|---|---|
-| CPU reference, tiled model and binary16 conversion | `cargo test --locked -p causal-reference` | **21 tests passed** locally; FP16 bit-pattern roundtrip, FP64 oracle, online recurrence and warp butterfly |
-| Host CLI, inputs, verifier and statistics | `cargo test --locked -p softmax-host` | **21 tests passed** locally; includes causal-prefix benchmark traffic |
-| PTX checker and resource parser | `python3 -m unittest discover -s scripts -p 'test_*.py'` | **21 tests passed** locally; per-entry signatures, barrier ordering, incomplete logs, zero-spill enforcement and wrong targets |
-| Rust syntax/format and host Clippy | `cargo fmt --all -- --check` and `cargo clippy --locked -p causal-reference -p softmax-host -- -D warnings` | **Passed** locally |
-| Device Rust typechecking / PTX | `cd gpu && cargo oxide build --arch sm_100a` | **PASS** locally with pinned Rust 1.99.1, cuda-oxide v0.3.0, CUDA 13.0 |
-| TMA, barriers, shuffles, exponent in PTX | `python3 scripts/check_ptx.py gb200_tma_causal_softmax.ptx` | **PASS**, all six PTX entries including three TMA variants |
-| `ptxas` assembly, registers ≤128, zero spills | `python3 scripts/check_resources.py gb200_tma_causal_softmax.ptx` | **PASS**, 20–31 compute registers, zero spills; explicit 32–40 B stack scratch for TMA |
+| CPU reference, tiled model and binary16 conversion | `cargo test --locked -p causal-reference` | **21 passed**; FP16 conversion, FP64 oracle, online recurrence and warp butterfly |
+| Host CLI, inputs, verifier and statistics | `cargo test --locked -p softmax-host` | **24 passed**; includes causal-prefix benchmark traffic |
+| PTX checker and resource parser | `python3 -m unittest discover -s scripts -p 'test_*.py'` | **28 passed**; PTX signatures, barrier order, spill checks and benchmark parser fixtures |
+| Rust syntax/format and host Clippy | `cargo fmt --all -- --check` and `cargo clippy --locked -p causal-reference -p softmax-host -- -D warnings` | **Passed in CI** |
+| Device Rust typechecking / PTX | `cd gpu && cargo oxide build --arch sm_100a` | **PASS in Linux CI** with pinned Rust 1.99.1, cuda-oxide v0.3.0, CUDA 13.3.1 |
+| TMA, barriers, shuffles, exponent in PTX | `python3 scripts/check_ptx.py gb200_tma_causal_softmax.ptx` | **PASS in CI**, all six PTX entries including three TMA variants |
+| `ptxas` assembly, registers ≤128, zero spills | `python3 scripts/check_resources.py gb200_tma_causal_softmax.ptx` | **PASS in CI**, 20–31 compute registers, zero spills; 32–40 B TMA stack scratch in local `ptxas` report |
 | Correct output on B200/GB200 | `--gpu-tests` then `--gpu-stress` | **Not run**; hardware unavailable |
 | Speedup versus baseline | `--bench` on matching hardware | **Not measured** |
 
-The GitHub Actions Linux job is configured to run CPU tests and, separately, CUDA 13 static compile/assembly without a GPU. **Local CUDA 13.0 compilation and assembly passed**; a committed workflow is still not evidence that its remote job passed. Attach an actual run URL when it does. The generated local PTX, cubin and ptxas log are included under `evidence/`.
+[GitHub Actions run 41595787096](https://github.com/R-P-Padhi/GB200-SM100A-TMA-Fused-Causal-Attention-Softmax/actions/runs/41595787096) passed both the Linux reference job and the GPU-free SM100a compilation/assembly job. The checked-in `evidence/` artifacts came from a separate local CUDA 13.0 static build.
 
-The independently uploaded **older** two-kernel codebase had archived `sm_100a` PTX and a `ptxas` log showing a 29-register, zero-spill online TMA entry. Its source pin is `b6315307`; this merged workspace uses the v0.3.0 release pin `99e571f4` and has extra kernels/changes. The old report was **not** reused: a fresh assembler report now independently records 29 registers and zero spills for the **merged** online kernel.
+An earlier two-kernel revision (`b6315307`) introduced the online 8×128 TMA approach. This five-kernel version uses cuda-oxide v0.3.0 (`99e571f4`) and was compiled and assembled separately; its online entry also reports 29 registers and zero spills.
 
 ## GPU test matrix
 
@@ -31,7 +29,7 @@ The independently uploaded **older** two-kernel codebase had archived `sm_100a` 
 
 The large `8192×8192` workload is a *manual* stress/benchmark preset, not a default correctness-CI test. First test 1×1 and irregular small shapes on actual hardware before attempting memory-intensive cases.
 
-## Suggested presentation: 10 slides
+## Presentation outline (10 slides)
 
 1. Scope and boundaries: softmax of existing attention scores, not full attention.
 2. FP16 data, FP32 arithmetic, scaled causal-softmax formula.
@@ -44,7 +42,7 @@ The large `8192×8192` workload is a *manual* stress/benchmark preset, not a def
 9. Validation gates: source tests, PTX signatures, ptxas spill/register caps, GPU suite.
 10. Results **only once measured**, limitations and next experiments.
 
-## Viva questions and direct answers
+## Viva Q&A
 
 **What is a CUDA kernel?** A function run by many GPU threads in parallel. A block is a cooperating group; here it always has 256 threads.
 
@@ -78,6 +76,6 @@ The large `8192×8192` workload is a *manual* stress/benchmark preset, not a def
 
 **What is 25% occupancy?** A theoretical occupancy target derived from resident warps/threads under resource limits; occupancy is not speedup.
 
-**Why not report GB200 performance now?** This environment has no GB200 and cannot run `sm_100a` code; a fabricated benchmark would not be an engineering result.
+**Why not report GB200 performance now?** A compatible GPU has not been available for a runtime or timing run.
 
-**What should be done next?** Confirm the remote CI run, then run the quick GPU suite and Compute Sanitizer on Blackwell; only after device correctness passes, compare variants with CUDA events and Nsight Compute.
+**What should be done next?** Run the quick GPU suite and Compute Sanitizer on Blackwell. Once device correctness passes, compare variants with CUDA events and Nsight Compute.
