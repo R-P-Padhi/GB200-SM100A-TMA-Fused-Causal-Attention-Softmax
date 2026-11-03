@@ -568,6 +568,8 @@ mod kernels {
         let mut maximum = f32::NEG_INFINITY;
         let mut denominator = 0.0f32;
 
+        // Both passes request every input TMA tile. Causal masking suppresses
+        // arithmetic for invalid scores, not the tile transfers themselves.
         for pass in 0..2 {
             if tid == 0 {
                 unsafe {
