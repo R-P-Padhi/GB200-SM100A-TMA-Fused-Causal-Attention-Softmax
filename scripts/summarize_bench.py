@@ -28,7 +28,7 @@ def parse_record(line: str) -> dict | None:
             continue
         if key in {"rows", "cols", "n", "streams", "queued", "calls_per_stream"}:
             record[key] = int(value)
-        elif key.endswith(("_ms", "_GBps", "_per_s", "_pct", "_speedup")) or key == "scale":
+        elif key.endswith(("_ms", "_GBps", "_per_s", "_pct", "_speedup")) or key == "scale" or key.startswith("speedup_"):
             number = float(value)
             if not math.isfinite(number) or number < 0:
                 raise ValueError(f"invalid numeric metric {key}={value}")

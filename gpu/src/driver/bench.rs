@@ -101,6 +101,7 @@ fn shape_sweep(session: &Session, config: &Config) -> Result<(), Box<dyn Error>>
         } else {
             None
         };
+        let mut baseline_ms = None::<f64>;
         for kind in candidates(config.kernel, cols) {
             let mut buffers = session.prepare(&input, rows, cols)?;
             if let Some(expected) = &expected {
@@ -119,8 +120,15 @@ fn shape_sweep(session: &Session, config: &Config) -> Result<(), Box<dyn Error>>
                 config.iterations,
                 1,
             )?;
+            if kind == Kernel::Baseline {
+                baseline_ms = Some(stats.median_ms);
+            }
+            let relative = baseline_ms
+                .filter(|_| stats.median_ms > 0.0)
+                .map(|base| format!(" speedup_vs_baseline={:.3}", base / stats.median_ms))
+                .unwrap_or_default();
             println!(
-                "BENCH category=shape clock=cuda_event {}",
+                "BENCH category=shape clock=cuda_event {}{relative}",
                 stats.report(kind.name(), rows, cols, kind.logical_bytes(rows, cols))
             );
         }
@@ -209,6 +217,35 @@ fn transfers(session: &Session, config: &Config) -> Result<(), Box<dyn Error>> {
             stats.report(kind.name(), rows, cols, traffic)
         );
     }
+    Ok(())
+}
+
+fn device_copy(session: &Session, config: &Config) -> Result<(), Box<dyn Error>> {
+    let (rows, cols) = (config.rows, config.cols);
+    let input = make_input(rows, cols, Pattern::Random, 0xbb6b_f14d);
+    let mut buffers = session.prepare(&input, rows, cols)?;
+    for _ in 0..config.warmup {
+        buffers
+            .output
+            .copy_from_device_async(&buffers.input, &session.stream)?;
+    }
+    session.stream.synchronize()?;
+    let mut timings = Vec::with_capacity(config.iterations);
+    for _ in 0..config.iterations {
+        let started = session.stream.record_event(Some(EVENT_FLAGS))?;
+        buffers
+            .output
+            .copy_from_device_async(&buffers.input, &session.stream)?;
+        let stopped = session.stream.record_event(Some(EVENT_FLAGS))?;
+        timings.push(f64::from(started.elapsed_ms(&stopped)?));
+    }
+    let stats = BenchStats::from_millis(&timings)?;
+    // Each copy reads one pitched matrix and writes another.
+    let bytes = 4.0 * (rows * padded_pitch(cols)) as f64;
+    println!(
+        "BENCH category=device_copy clock=cuda_event {}",
+        stats.report("d2d_memcpy", rows, cols, bytes)
+    );
     Ok(())
 }
 
@@ -340,6 +377,7 @@ pub(super) fn suite(session: &Session, config: &Config) -> Result<(), Box<dyn Er
     shape_sweep(session, config)?;
     launch_queue(session, config)?;
     transfers(session, config)?;
+    device_copy(session, config)?;
     pattern_sweep(session, config)?;
     multi_stream(session, config)?;
     println!(

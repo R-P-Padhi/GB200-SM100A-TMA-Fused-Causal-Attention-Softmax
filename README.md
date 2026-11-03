@@ -123,7 +123,7 @@ If the cuda-oxide CLI's `run` forwarding differs on the pinned revision, inspect
 
 ## Benchmarking
 
-The hardware benchmark suite has **CUDA-event kernel latency**, p50/p95/p99/min/max/mean/stddev/CV, approximate logical bandwidth, elements/s, H2D/D2H and end-to-end transfer time, 1/2/4/8-stream concurrent workloads, batch queue depths (1/4/16/64), shape scaling, and extreme-score/scale sensitivity. The existing --bench wall-clock comparison is retained. The suite verifies output outside timed event windows by default.
+The hardware benchmark suite has **CUDA-event kernel latency**, p50/p95/p99/min/max/mean/stddev/CV, approximate logical bandwidth, elements/s, H2D/D2H and end-to-end transfer time, device-to-device copy bandwidth, 1/2/4/8-stream concurrent workloads, batch queue depths (1/4/16/64), shape scaling, and extreme-score/scale sensitivity. The existing --bench wall-clock comparison is retained. The suite verifies output outside timed event windows by default.
 
 - On real B200/GB200 after building the device module: run `cargo run --release -p gb200-tma-causal-softmax -- --bench-suite --iterations 40 --warmup 10`.
 - Add `--stress` to include 8192x8192, or `--kernel online` to select a variant.

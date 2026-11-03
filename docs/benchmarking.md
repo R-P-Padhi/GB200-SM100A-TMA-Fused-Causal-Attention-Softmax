@@ -10,14 +10,15 @@ This project isolates three timing domains: **CUDA events** for device execution
 | --bench-suite: shape | 1x1, 31x31, 32x32, 64x64, 128x257, 256x256, 512x512, 1024x1024, 128x4096, 4096x128, 2048x2048, 4096x4096, specified shape; include 8192x8192 with --stress | CUDA events |
 | --bench-suite: queue | 1, 4, 16, 64 back-to-back launches per timed event window, per-launch amortized | CUDA events |
 | --bench-suite: transfer | Blocking H2D, D2H, H2D+kernel+D2H on preallocated buffers | Host wall |
+| --bench-suite: device_copy | Device-to-device pitched FP16 memcpy baseline (one read, one write) | CUDA events |
 | --bench-suite: pattern | Zeros, ramp, alternating, spikes, extreme, random; scales 0, 0.125, 1, 1e30 | CUDA events |
 | --bench-suite: concurrency | 1, 2, 4, 8 nonblocking CUDA streams, independent buffers and four queued launches/stream | Host wall, synchronized across all streams |
 | cpu_bench | CPU reference vs CPU online model on nine shapes and two input distributions | CPU host wall |
 
 Every sample group reports: sample count, minimum, mean, median, p95, p99, maximum, population standard deviation and coefficient of variation. Additional metrics include:
 
-- Output elements/s, effective rows/s (derive as elements/s divided by columns), and model-based logical GB/s.
-- H2D and D2H pageable host-transfer latency, end-to-end latency and throughput.
+- Output elements/s, effective rows/s (derive as elements/s divided by columns), model-based logical GB/s, and speedup versus baseline for each shape when the baseline variant is included.
+- H2D and D2H pageable host-transfer latency, end-to-end latency and throughput, plus a device-to-device copy bandwidth baseline.
 - Concurrent kernel launches/s, 1/2/4/8-stream aggregate throughput, speedup relative to one stream.
 - Queue-depth effects, rectangular/ragged/tiny shape performance, pattern and scale sensitivity.
 - Correctness against the CPU reference unless --no-verify is requested, plus the independent GPU stress suite.

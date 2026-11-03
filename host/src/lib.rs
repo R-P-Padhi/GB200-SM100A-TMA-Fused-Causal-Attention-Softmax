@@ -350,7 +350,7 @@ impl BenchStats {
         let n = ms.len();
         let mean = ms.iter().sum::<f64>() / n as f64;
         let variance = ms.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
-        let median = if n % 2 == 0 {
+        let median = if n.is_multiple_of(2) {
             (ms[n / 2 - 1] + ms[n / 2]) / 2.0
         } else {
             ms[n / 2]
