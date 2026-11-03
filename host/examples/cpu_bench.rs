@@ -1,11 +1,7 @@
 //! CPU-only timing harness. These figures are never presented as GPU performance.
 use causal_reference::{causal_softmax, online::tiled_online_softmax};
 use softmax_host::{BenchStats, Pattern, make_input, verify};
-use std::{
-    error::Error,
-    hint::black_box,
-    time::Instant,
-};
+use std::{error::Error, hint::black_box, time::Instant};
 
 fn sample<F>(iterations: usize, mut f: F) -> Result<BenchStats, Box<dyn Error>>
 where

@@ -2,8 +2,7 @@
 use super::*;
 use std::time::Instant;
 
-const EVENT_FLAGS: cuda_sys::CUevent_flags =
-    cuda_sys::CUevent_flags_enum_CU_EVENT_DEFAULT;
+const EVENT_FLAGS: cuda_sys::CUevent_flags = cuda_sys::CUevent_flags_enum_CU_EVENT_DEFAULT;
 
 #[allow(clippy::too_many_arguments)]
 fn kernel_event_ms(
@@ -110,8 +109,15 @@ fn shape_sweep(session: &Session, config: &Config) -> Result<(), Box<dyn Error>>
                 verify(&actual, expected, rows, cols)?;
             }
             let stats = sample_events(
-                session, kind, &mut buffers, rows, cols, config.scale,
-                config.warmup, config.iterations, 1,
+                session,
+                kind,
+                &mut buffers,
+                rows,
+                cols,
+                config.scale,
+                config.warmup,
+                config.iterations,
+                1,
             )?;
             println!(
                 "BENCH category=shape clock=cuda_event {}",
@@ -130,8 +136,15 @@ fn launch_queue(session: &Session, config: &Config) -> Result<(), Box<dyn Error>
         let mut buffers = session.prepare(&input, rows, cols)?;
         for queued in [1, 4, 16, 64] {
             let stats = sample_events(
-                session, kind, &mut buffers, rows, cols, config.scale,
-                config.warmup, config.iterations, queued,
+                session,
+                kind,
+                &mut buffers,
+                rows,
+                cols,
+                config.scale,
+                config.warmup,
+                config.iterations,
+                queued,
             )?;
             println!(
                 "BENCH category=queue clock=cuda_event queued={queued} {}",
@@ -184,7 +197,11 @@ fn transfers(session: &Session, config: &Config) -> Result<(), Box<dyn Error>> {
     for (stage, timings, traffic) in [
         ("h2d", &h2d, bytes),
         ("d2h", &d2h, bytes),
-        ("h2d_kernel_d2h", &full, 2.0 * bytes + kind.logical_bytes(rows, cols)),
+        (
+            "h2d_kernel_d2h",
+            &full,
+            2.0 * bytes + kind.logical_bytes(rows, cols),
+        ),
     ] {
         let stats = BenchStats::from_samples(timings)?;
         println!(
@@ -197,7 +214,14 @@ fn transfers(session: &Session, config: &Config) -> Result<(), Box<dyn Error>> {
 
 fn pattern_sweep(session: &Session, config: &Config) -> Result<(), Box<dyn Error>> {
     let (rows, cols) = (config.rows.min(256), config.cols.min(256));
-    for pattern in [Pattern::Zeros, Pattern::Ramp, Pattern::Alternating, Pattern::Spikes, Pattern::Extreme, Pattern::Random] {
+    for pattern in [
+        Pattern::Zeros,
+        Pattern::Ramp,
+        Pattern::Alternating,
+        Pattern::Spikes,
+        Pattern::Extreme,
+        Pattern::Random,
+    ] {
         let input = make_input(rows, cols, pattern, 0xd3ad_87c1);
         for scale in [0.0, 0.125, 1.0, 1.0e30] {
             for kind in candidates(config.kernel, cols) {
@@ -209,8 +233,15 @@ fn pattern_sweep(session: &Session, config: &Config) -> Result<(), Box<dyn Error
                     verify(&actual, &expected, rows, cols)?;
                 }
                 let stats = sample_events(
-                    session, kind, &mut buffers, rows, cols, scale,
-                    config.warmup.min(3), config.iterations.min(12), 1,
+                    session,
+                    kind,
+                    &mut buffers,
+                    rows,
+                    cols,
+                    scale,
+                    config.warmup.min(3),
+                    config.iterations.min(12),
+                    1,
                 )?;
                 println!(
                     "BENCH category=pattern pattern={} scale={scale} clock=cuda_event {}",
@@ -226,7 +257,11 @@ fn pattern_sweep(session: &Session, config: &Config) -> Result<(), Box<dyn Error
 fn multi_stream(session: &Session, config: &Config) -> Result<(), Box<dyn Error>> {
     let rows = config.rows.min(512);
     let kind = config.resolved_kernel();
-    let cols = if kind == Kernel::Warp { config.cols.min(32) } else { config.cols.min(512) };
+    let cols = if kind == Kernel::Warp {
+        config.cols.min(32)
+    } else {
+        config.cols.min(512)
+    };
     let input = make_input(rows, cols, Pattern::Random, 0x58ee_7719);
     let expected = if config.verify {
         Some(causal_softmax(&input, rows, cols, config.scale)?)
@@ -275,14 +310,22 @@ fn multi_stream(session: &Session, config: &Config) -> Result<(), Box<dyn Error>
         let calls = (count * queued) as f64;
         let calls_per_s = calls / (stats.median_ms / 1e3);
         let baseline = *baseline_throughput.get_or_insert(calls_per_s);
-        let speedup = if baseline > 0.0 { calls_per_s / baseline } else { 0.0 };
+        let speedup = if baseline > 0.0 {
+            calls_per_s / baseline
+        } else {
+            0.0
+        };
         let gbps = calls_per_s * kind.logical_bytes(rows, cols) / 1e9;
         println!(
             "BENCH category=concurrency clock=host_wall streams={count} calls_per_stream={queued} \
              kernel={} rows={rows} cols={cols} n={} batch_p50_ms={:.5} batch_p95_ms={:.5} \
              batch_p99_ms={:.5} kernels_per_s={calls_per_s:.2} throughput_speedup={speedup:.3} \
              approx_logical_GBps={gbps:.2}",
-            kind.name(), stats.samples, stats.median_ms, stats.p95_ms, stats.p99_ms
+            kind.name(),
+            stats.samples,
+            stats.median_ms,
+            stats.p95_ms,
+            stats.p99_ms
         );
     }
     Ok(())
@@ -299,7 +342,9 @@ pub(super) fn suite(session: &Session, config: &Config) -> Result<(), Box<dyn Er
     transfers(session, config)?;
     pattern_sweep(session, config)?;
     multi_stream(session, config)?;
-    println!("BENCH complete: CUDA events are device timing; host-wall includes synchronization. \
-             Logical GB/s is an estimated traffic model, not an Nsight DRAM counter.");
+    println!(
+        "BENCH complete: CUDA events are device timing; host-wall includes synchronization. \
+             Logical GB/s is an estimated traffic model, not an Nsight DRAM counter."
+    );
     Ok(())
 }

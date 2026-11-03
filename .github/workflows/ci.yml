@@ -16,11 +16,14 @@ jobs:
       - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Measure CPU reference (informational; not a GPU benchmark)
         run: cargo run --locked --release -p softmax-host --example cpu_bench -- --iterations 5 | tee cpu-bench.log
+      - run: python3 scripts/summarize_bench.py cpu-bench.log --output cpu-bench.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: cpu-reference-benchmark
-          path: cpu-bench.log
+          path: |
+            cpu-bench.log
+            cpu-bench.json
           if-no-files-found: warn
 
   device-static:

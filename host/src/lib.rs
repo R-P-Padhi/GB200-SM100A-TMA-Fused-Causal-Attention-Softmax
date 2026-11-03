@@ -365,7 +365,11 @@ impl BenchStats {
             max_ms: ms[n - 1],
             mean_ms: mean,
             stddev_ms: stddev,
-            cv_pct: if mean > 0.0 { 100.0 * stddev / mean } else { 0.0 },
+            cv_pct: if mean > 0.0 {
+                100.0 * stddev / mean
+            } else {
+                0.0
+            },
         })
     }
     pub fn from_samples(samples: &[Duration]) -> Result<Self, String> {
@@ -389,8 +393,15 @@ impl BenchStats {
         };
         format!(
             "kernel={name} rows={rows} cols={cols} n={} min_ms={:.5} median_ms={:.5} p95_ms={:.5} p99_ms={:.5} max_ms={:.5} mean_ms={:.5} stddev_ms={:.5} cv_pct={:.2} approx_logical_GBps={gbps:.2} Melem_per_s={melems:.2}",
-            self.samples, self.min_ms, self.median_ms, self.p95_ms, self.p99_ms,
-            self.max_ms, self.mean_ms, self.stddev_ms, self.cv_pct
+            self.samples,
+            self.min_ms,
+            self.median_ms,
+            self.p95_ms,
+            self.p99_ms,
+            self.max_ms,
+            self.mean_ms,
+            self.stddev_ms,
+            self.cv_pct
         )
     }
 }
@@ -548,7 +559,10 @@ mod tests {
     #[test]
     fn bench_percentiles_and_spread() {
         let b = BenchStats::from_millis(&[1.0, 3.0, 5.0, 7.0, 9.0]).unwrap();
-        assert_eq!((b.samples, b.median_ms, b.p95_ms, b.p99_ms), (5, 5.0, 9.0, 9.0));
+        assert_eq!(
+            (b.samples, b.median_ms, b.p95_ms, b.p99_ms),
+            (5, 5.0, 9.0, 9.0)
+        );
         assert_eq!(b.mean_ms, 5.0);
         assert!((b.stddev_ms - 8.0_f64.sqrt()).abs() < 1e-12);
         assert!(b.cv_pct > 0.0);
@@ -567,5 +581,4 @@ mod tests {
         assert_eq!(c.iterations, 8);
         assert!(Config::parse(["--bench-suite", "--iterations", "0"]).is_err());
     }
-
 }

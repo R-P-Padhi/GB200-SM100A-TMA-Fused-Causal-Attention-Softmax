@@ -44,7 +44,7 @@ For CPU-only machines or standard GitHub Actions (no NVIDIA GPU):
     cargo run --locked --release -p softmax-host --example cpu_bench -- --iterations 5
     python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
-The CPU model benchmark writes output to cpu-bench.log in CI. It measures reference CPU work and is **not** a surrogate for GPU execution. CI checks correctness and compilation; it has no fixed speed threshold because shared-runner CPU timing is noisy.
+The CPU model benchmark writes cpu-bench.log and a typed cpu-bench.json summary via scripts/summarize_bench.py in CI. It measures reference CPU work and is **not** a surrogate for GPU execution. CI checks correctness and compilation; it has no fixed speed threshold because shared-runner CPU timing is noisy.
 
 ## Interpreting results
 
